@@ -8,11 +8,12 @@ module Eth2ForkChoice
   class UnknownJustifiedRoot < StandardError; end
 
   class Magic
-    attr_reader :store, :votes
+    attr_reader :store, :balances, :votes
 
-    def head(justified_epoch, justified_root, finalized_epoch)
-      deltas = compute_deltas
+    def head(justified_epoch, justified_root, justified_state_balances, finalized_epoch)
+      deltas = compute_deltas(justified_state_balances)
       @store.apply_weight_changes(justified_epoch, finalized_epoch, deltas)
+      @balances = justified_state_balances
       @store.head(justified_root)
     end
 
@@ -36,26 +37,32 @@ module Eth2ForkChoice
     def initialize(justified_epoch, finalized_epoch, finalized_root)
       @store =
         Store.new(justified_epoch: justified_epoch, finalized_epoch: finalized_epoch, finalized_root: finalized_root)
+      @balances = []
       @votes = []
     end
 
-    def compute_deltas
+    def compute_deltas(new_balances)
+      old_balances = @balances
+
       deltas = [0] * @store.nodes_indices.size
       @votes.each.with_index do |vote, validator_index|
         # Skip if validator has never voted for current root and next root (ie. if the
         # votes are zero hash aka genesis block), there's nothing to compute.
         next if vote.nil? || (vote.current_root == ZERO_HASH && vote.next_root == ZERO_HASH)
 
+        old_balance = old_balances[validator_index] || 0
+        new_balance = new_balances[validator_index] || 0
+
         # Perform delta only if the validator's balance or vote has changed.
-        if vote.current_root != vote.next_root
+        if vote.current_root != vote.next_root || old_balance != new_balance
           # Ignore the vote if it's not known in `blockIndices`,
           # that means we have not seen the block before.
           if next_delta_index = @store.nodes_indices[vote.next_root]
-            deltas[next_delta_index] += 1
+            deltas[next_delta_index] += new_balance
           end
 
           if current_delta_index = @store.nodes_indices[vote.current_root]
-            deltas[current_delta_index] -= 1
+            deltas[current_delta_index] -= old_balance
           end
         end
 
