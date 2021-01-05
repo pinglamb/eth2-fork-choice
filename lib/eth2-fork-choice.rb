@@ -8,11 +8,11 @@ module Eth2ForkChoice
   class UnknownJustifiedRoot < StandardError; end
 
   class Magic
-    attr_reader :store
+    attr_reader :store, :votes
 
     def head(justified_epoch, justified_root, finalized_epoch)
-      delta = [0] * @store.nodes.size
-      @store.apply_weight_changes(justified_epoch, finalized_epoch, delta)
+      deltas = compute_deltas
+      @store.apply_weight_changes(justified_epoch, finalized_epoch, deltas)
       @store.head(justified_root)
     end
 
@@ -20,11 +20,49 @@ module Eth2ForkChoice
       @store.insert(slot, block_root, parent_root, justified_epoch, finalized_epoch)
     end
 
+    def process_attestation(validator_indices, block_root, target_epoch)
+      validator_indices.each do |index|
+        @votes[index] ||= Vote.new
+
+        if @votes[index].next_root == ZERO_HASH || target_epoch > @votes[index].next_epoch
+          @votes[index].next_epoch = target_epoch
+          @votes[index].next_root = block_root
+        end
+      end
+    end
+
     private
 
     def initialize(justified_epoch, finalized_epoch, finalized_root)
       @store =
         Store.new(justified_epoch: justified_epoch, finalized_epoch: finalized_epoch, finalized_root: finalized_root)
+      @votes = []
+    end
+
+    def compute_deltas
+      deltas = [0] * @store.nodes_indices.size
+      @votes.each.with_index do |vote, validator_index|
+        # Skip if validator has never voted for current root and next root (ie. if the
+        # votes are zero hash aka genesis block), there's nothing to compute.
+        next if vote.nil? || (vote.current_root == ZERO_HASH && vote.next_root == ZERO_HASH)
+
+        # Perform delta only if the validator's balance or vote has changed.
+        if vote.current_root != vote.next_root
+          # Ignore the vote if it's not known in `blockIndices`,
+          # that means we have not seen the block before.
+          if next_delta_index = @store.nodes_indices[vote.next_root]
+            deltas[next_delta_index] += 1
+          end
+
+          if current_delta_index = @store.nodes_indices[vote.current_root]
+            deltas[current_delta_index] -= 1
+          end
+        end
+
+        vote.current_root = vote.next_root
+      end
+
+      deltas
     end
   end
 
@@ -253,6 +291,18 @@ module Eth2ForkChoice
       @best_child = best_child
       @best_descendant = best_descendant
       @weight = weight
+    end
+  end
+
+  class Vote
+    attr_accessor :current_root, :next_root, :next_epoch
+
+    private
+
+    def initialize
+      @current_root = ZERO_HASH
+      @next_root = ZERO_HASH
+      @next_epoch = 0
     end
   end
 end
