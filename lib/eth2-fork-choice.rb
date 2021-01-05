@@ -154,6 +154,7 @@ module Eth2ForkChoice
       change_to_child = [child_index, child.best_descendant || child_index]
       no_change = [parent.best_child, parent.best_descendant]
 
+      # All the comparison is still among child and best_child, not best_descendant
       result = nil
       if parent.best_child.nil?
         if child_leads_to_viable_head
@@ -186,7 +187,7 @@ module Eth2ForkChoice
             result = no_change
           elsif child.weight == best_child.weight
             # If both are viable, compare their weights.
-            # Tie-breaker of equal weights by root.
+            # Tie-breaker of equal weights by root. Larger root wins
             # FIXME Simplified comparison, just first 2 bytes
             child_root_bytes = [child.root].pack('H*').bytes
             best_child_root_bytes = [best_child.root].pack('H*').bytes
@@ -212,6 +213,8 @@ module Eth2ForkChoice
       end
 
       parent.best_child, parent.best_descendant = *result
+
+      # puts [parent_index, child_index, parent.best_child, parent.best_descendant].inspect
 
       parent
     end

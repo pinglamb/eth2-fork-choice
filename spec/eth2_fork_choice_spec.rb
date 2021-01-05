@@ -95,5 +95,39 @@ RSpec.describe Eth2ForkChoice do
       r = f.head(2, index_to_hash(5), 1)
       expect(r).to eq(index_to_hash(6))
     end
+
+    it 'compares same weight nodes by root' do
+      f = Eth2ForkChoice::Magic.new(0, 0, ZERO_HASH)
+      f.process_block(0, ZERO_HASH, nil, 1, 1)
+
+      # Insert block 1 then block 2 into the tree and verify head is at 2:
+      #            0
+      #           / \
+      #          1  2 <- head
+      f.process_block(0, index_to_hash(1), ZERO_HASH, 1, 1)
+      expect(f.head(1, ZERO_HASH, 1)).to eq(index_to_hash(1))
+      f.process_block(0, index_to_hash(2), ZERO_HASH, 1, 1)
+      expect(f.head(1, ZERO_HASH, 1)).to eq(index_to_hash(2))
+
+      # Insert block 4 into the tree and verify head is still at 2:
+      #            0
+      #           / \
+      #  head -> 2  1
+      #             |
+      #             4
+      # though index_to_hash(4) > index_to_hash(2)
+      f.process_block(0, index_to_hash(4), index_to_hash(1), 1, 1)
+      expect(f.head(1, ZERO_HASH, 1)).to eq(index_to_hash(2))
+
+      # Insert block 3 into the tree and verify head is at 3:
+      #            0
+      #           / \
+      #  head -> 2  1
+      #             |
+      #             4
+      # though index_to_hash(4) > index_to_hash(2)
+      f.process_block(0, index_to_hash(3), index_to_hash(2), 1, 1)
+      expect(f.head(1, ZERO_HASH, 1)).to eq(index_to_hash(3))
+    end
   end
 end
